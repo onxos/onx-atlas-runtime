@@ -1,73 +1,49 @@
-# React + TypeScript + Vite
+# ONX Intelligence
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+## Founder Alpha — Full Deployment
 
-Currently, two official plugins are available:
+**Version:** founder-alpha-20260623
+**Status:** DEPLOYED
+**Sovereignty Score:** 71.67/100
+**KSR:** 95.00%
+**PDR:** 5.00%
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+---
 
-## React Compiler
+## Quick Start
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run db:push
+npm run build
+npm start
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Architecture
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Model Gateway
+- 5 providers (OpenAI, OpenAI Fallback, Qwen, DeepSeek, Llama)
+- ISES: 12-dimension source evaluation
+- Provider Capital: 11-dimension capital profiles
+- Sovereignty Loop: 5 pre-call questions
+- Provider switching: configuration change only
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+### Tool Gateway
+- 8 tools across 6 categories
+- Tool replacement validation
+- Sovereignty checks
+- Runway integration via Tool Gateway only
+
+### Intelligence Core
+- 10 database tables
+- 6 quality indices (UQI, JQI, WQI, ICI, OQI, IRS)
+- Constitutional extensions integrated
+- ISMF: KSR, PDR, KRR, KOR, SCG, SAI
+
+## Deployment
+
+See `deployment/founder-alpha/DEPLOYMENT.md`
+
+## Author
+
+Onur Aymac | Elite Vet Care Group
