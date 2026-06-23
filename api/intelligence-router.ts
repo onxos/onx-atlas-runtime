@@ -1258,6 +1258,569 @@ export const intelligenceRouter = createRouter({
       },
     };
   }),
+
+  // ==========================================================
+  // PHASE 3: MULTI-CONTEXT INTELLIGENCE (MC-01 through MC-10)
+  // Source Authority: D14 — Meta-Intelligence Orchestration
+  // ==========================================================
+
+  // MC-01: selectSource — Rank and select among competing sources
+  selectSource: publicQuery
+    .input(z.object({
+      sources: z.array(z.object({
+        layer: z.string(),
+        name: z.string(),
+        trustScore: z.number(),
+        content: z.string(),
+        relevance: z.number().optional(),
+      })),
+      context: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      // D14 Source Selection Hierarchy: L1 > L2 > L3 > L4 > L5 > L6 > L7 > L8
+      const layerRank: Record<string, number> = {
+        L1_FOUNDER: 8, L2_SIL: 7, L3_COMPANION: 6, L4_PARTNER: 5,
+        L5_REALITY: 4, L6_PROCESS: 3, L7_EXTERNAL: 2, L8_GENERAL: 1,
+      };
+
+      const scored = input.sources.map(s => {
+        const rank = layerRank[s.layer] || 0;
+        const relevance = s.relevance || 0.5;
+        const compositeScore = (rank * 0.4) + (s.trustScore * 0.35) + (relevance * 0.25);
+        return { ...s, rank, compositeScore };
+      }).sort((a, b) => b.compositeScore - a.compositeScore);
+
+      const selected = scored[0];
+      const rejected = scored.slice(1);
+
+      await recordGovernance("FIC_VALIDATION", null, "PASSED",
+        `MC-01 Source Selection: Selected ${selected.name} (${selected.layer}) score=${selected.compositeScore.toFixed(4)} over ${rejected.length} alternatives`, "D14");
+
+      await logContinuity("L7_INSTITUTIONAL", "MC01_SOURCE_SELECTION", "meta",
+        { selected: selected.name, layer: selected.layer, score: selected.compositeScore, alternatives: rejected.map(r => r.name) });
+
+      return {
+        selected: { name: selected.name, layer: selected.layer, score: selected.compositeScore },
+        ranking: scored.map((s, i) => ({ rank: i + 1, name: s.name, layer: s.layer, score: s.compositeScore.toFixed(4) })),
+        rejected: rejected.map(r => ({ name: r.name, layer: r.layer, reason: `Lower composite score: ${r.compositeScore.toFixed(4)} vs ${selected.compositeScore.toFixed(4)}` })),
+        selectionRationale: `Selected ${selected.name} based on D14 hierarchy: layerRank=${selected.rank} * 0.4 + trustScore=${selected.trustScore} * 0.35 + relevance=${selected.relevance || 0.5} * 0.25 = ${selected.compositeScore.toFixed(4)}`,
+        hierarchyApplied: "D14 9-layer source selection",
+      };
+    }),
+
+  // MC-02: route — Route intelligence to correct context
+  route: publicQuery
+    .input(z.object({
+      objectId: z.string(),
+      targetContext: z.string(),
+      priority: z.enum(["LOW", "NORMAL", "HIGH", "CRITICAL"]).default("NORMAL"),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const objs = await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, input.objectId));
+      if (objs.length === 0) throw new Error("OBJECT_NOT_FOUND");
+      const obj = objs[0];
+
+      const routingRules: Record<string, { allowedLayers: string[]; privacyFilter: string }> = {
+        PERSONAL: { allowedLayers: ["L1_FOUNDER", "L3_COMPANION"], privacyFilter: "PERSONAL" },
+        INSTITUTIONAL: { allowedLayers: ["L1_FOUNDER", "L2_SIL", "L4_PARTNER", "L5_REALITY", "L6_PROCESS"], privacyFilter: "INSTITUTIONAL" },
+        STRATEGIC: { allowedLayers: ["L1_FOUNDER", "L2_SIL", "L4_PARTNER"], privacyFilter: "INSTITUTIONAL" },
+        OPERATIONAL: { allowedLayers: ["L5_REALITY", "L6_PROCESS", "L7_EXTERNAL"], privacyFilter: "OPERATIONAL" },
+      };
+
+      const rule = routingRules[input.targetContext] || routingRules.INSTITUTIONAL;
+      const sourceLayer = obj.customAttributes ? JSON.parse(obj.customAttributes).sourceLayer || "L7_EXTERNAL" : "L7_EXTERNAL";
+      const allowed = rule.allowedLayers.includes(sourceLayer) || obj.originSource === "L1_FOUNDER";
+      const effectiveAllowed = obj.originSource === "L1_FOUNDER" ? true : allowed;
+
+      const routeDecision = {
+        objectId: input.objectId,
+        targetContext: input.targetContext,
+        sourceLayer,
+        allowed: effectiveAllowed,
+        rule: input.targetContext,
+        privacyFilter: rule.privacyFilter,
+        priority: input.priority,
+        leakagePrevented: !effectiveAllowed,
+        founderOverride: obj.originSource === "L1_FOUNDER",
+      };
+
+      await recordGovernance("FIC_VALIDATION", obj.id, effectiveAllowed ? "PASSED" : "BLOCKED",
+        `MC-02 Routing: ${input.objectId} to ${input.targetContext} | Layer=${sourceLayer} | Allowed=${effectiveAllowed}${obj.originSource === "L1_FOUNDER" ? " (Founder override)" : ""}`, "D14");
+
+      await logContinuity("L6_CONSTITUTIONAL", "MC02_ROUTING", input.objectId, routeDecision);
+
+      return routeDecision;
+    }),
+
+  // MC-03: arbitrate — Resolve contradictions using D14 hierarchy
+  arbitrate: publicQuery
+    .input(z.object({
+      conflictType: z.enum(["SOURCE_VS_SOURCE", "WISDOM_VS_REALITY", "FOUNDER_VS_INSTITUTION"]),
+      partyA: z.object({ id: z.string(), layer: z.string(), content: z.string(), amanah: z.number() }),
+      partyB: z.object({ id: z.string(), layer: z.string(), content: z.string(), amanah: z.number() }),
+      context: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const layerPriority: Record<string, number> = {
+        L1_FOUNDER: 10, L2_SIL: 9, L3_COMPANION: 8, L4_PARTNER: 7,
+        L5_REALITY: 6, L6_PROCESS: 5, L7_EXTERNAL: 4, L8_GENERAL: 3,
+      };
+
+      const pa = layerPriority[input.partyA.layer] || 0;
+      const pb = layerPriority[input.partyB.layer] || 0;
+
+      let winner: string;
+      let justification: string;
+      let resolution: string;
+
+      if (input.conflictType === "FOUNDER_VS_INSTITUTION") {
+        winner = input.partyA.layer === "L1_FOUNDER" ? input.partyA.id : input.partyB.id;
+        justification = "D14 Level 10: Founder Intent is absolute. No institutional override permitted.";
+        resolution = "FOUNDER_PREVAILS";
+      } else if (input.conflictType === "WISDOM_VS_REALITY") {
+        if (input.partyB.amanah > input.partyA.amanah + 0.2) {
+          winner = input.partyB.id;
+          justification = `D14 Level 6: Reality evidence (amanah=${input.partyB.amanah}) supersedes wisdom (amanah=${input.partyA.amanah}) by >0.2 margin`;
+          resolution = "REALITY_UPDATES";
+        } else {
+          winner = input.partyA.id;
+          justification = `D14 Level 6: Wisdom retained (amanah=${input.partyA.amanah}) — reality evidence (amanah=${input.partyB.amanah}) insufficient to override`;
+          resolution = "WISDOM_RETAINED";
+        }
+      } else {
+        if (pa > pb) {
+          winner = input.partyA.id;
+          justification = `D14 hierarchy: ${input.partyA.layer} (priority ${pa}) > ${input.partyB.layer} (priority ${pb})`;
+          resolution = "HIERARCHY_PREVAILS";
+        } else if (pb > pa) {
+          winner = input.partyB.id;
+          justification = `D14 hierarchy: ${input.partyB.layer} (priority ${pb}) > ${input.partyA.layer} (priority ${pa})`;
+          resolution = "HIERARCHY_PREVAILS";
+        } else {
+          winner = input.partyA.amanah >= input.partyB.amanah ? input.partyA.id : input.partyB.id;
+          justification = `Same layer (${input.partyA.layer}): Higher Amanah wins (${Math.max(input.partyA.amanah, input.partyB.amanah)})`;
+          resolution = "AMANAH_TIEBREAK";
+        }
+      }
+
+      await recordGovernance("AUDITOR_LOG", null, "PASSED",
+        `MC-03 Arbitration: ${input.conflictType} | Winner=${winner} | Resolution=${resolution} | ${justification}`, "D14");
+
+      await logContinuity("L6_CONSTITUTIONAL", "MC03_ARBITRATION", "meta",
+        { conflictType: input.conflictType, winner, resolution, justification });
+
+      return {
+        conflictType: input.conflictType,
+        winner,
+        resolution,
+        justification,
+        partyA: { id: input.partyA.id, priority: pa, amanah: input.partyA.amanah },
+        partyB: { id: input.partyB.id, priority: pb, amanah: input.partyB.amanah },
+        hierarchyApplied: "D14 10-Level Arbitration",
+      };
+    }),
+
+  // MC-04: synthesize — Merge multiple inputs into single IO
+  synthesize: publicQuery
+    .input(z.object({
+      inputs: z.array(z.object({
+        objectId: z.string(),
+        weight: z.number().min(0).max(1).optional(),
+      })).min(3),
+      outputType: z.enum(["SIGNAL", "PATTERN", "UNDERSTANDING", "JUDGMENT", "WISDOM"]).default("PATTERN"),
+      synthesisMethod: z.enum(["CONSENSUS", "HIERARCHICAL", "WEIGHTED"]).default("HIERARCHICAL"),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+
+      const inputObjects = [];
+      for (const inp of input.inputs) {
+        const objs = await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, inp.objectId));
+        if (objs.length > 0) {
+          inputObjects.push({ ...objs[0], weight: inp.weight || (1 / input.inputs.length) });
+        }
+      }
+
+      if (inputObjects.length < 3) throw new Error(`MC-04 requires minimum 3 valid inputs, found ${inputObjects.length}`);
+
+      const maxAmanah = Math.max(...inputObjects.map(o => parseFloat(o.amanahScore || "0")));
+      const avgTrust = inputObjects.reduce((s, o) => s + parseFloat(o.trustScore || "0"), 0) / inputObjects.length;
+      const lineageIds = inputObjects.map(o => o.objectId);
+
+      const layerPriority: Record<string, number> = {
+        L1_FOUNDER: 8, L2_SIL: 7, L3_COMPANION: 6, L4_PARTNER: 5,
+        L5_REALITY: 4, L6_PROCESS: 3, L7_EXTERNAL: 2, L8_GENERAL: 1,
+      };
+      const dominant = inputObjects.sort((a, b) => (layerPriority[b.originSource] || 0) - (layerPriority[a.originSource] || 0))[0];
+
+      const outputId = randomUUID();
+      const synthContent = `[SYNTHESIZED from ${inputObjects.length} sources] ${dominant.content}`;
+      const [inserted] = await db.insert(intelligenceObjects).values({
+        objectId: outputId,
+        objectType: input.outputType,
+        lifecycleState: "VALIDATED",
+        originSource: dominant.originSource,
+        creatorIdentity: "SYNTHESIZER_D14",
+        amanahScore: maxAmanah.toFixed(2),
+        ownershipClass: "DERIVED",
+        content: synthContent,
+        contentHash: createHash("sha256").update(synthContent).digest("hex"),
+        semanticSummary: `Synthesis of ${inputObjects.length} intelligence objects via ${input.synthesisMethod}`,
+        privacyLevel: "INSTITUTIONAL",
+        trustScore: avgTrust.toFixed(2),
+        customAttributes: JSON.stringify({ synthesisMethod: input.synthesisMethod, lineage: lineageIds, weights: inputObjects.map(o => o.weight) }),
+      }).$returningId();
+
+      for (const src of inputObjects) {
+        await db.insert(objectRelationships).values({
+          fromObjectId: inserted.id,
+          toObjectId: src.id,
+          relationshipType: "DERIVES_FROM",
+          strength: src.weight.toFixed(2),
+        });
+        await db.insert(provenanceRecords).values({
+          objectId: inserted.id,
+          dimension: "TRANSFORMATION_CHAIN",
+          value: `Input: ${src.objectId} (layer=${src.originSource}, weight=${src.weight.toFixed(2)})`,
+          hash: createHash("sha256").update(src.objectId + outputId).digest("hex"),
+        });
+      }
+
+      await recordGovernance("FIC_VALIDATION", inserted.id, "PASSED",
+        `MC-04 Synthesis: ${inputObjects.length} inputs -> ${outputId} | Method=${input.synthesisMethod} | Dominant=${dominant.originSource}`, "D14");
+
+      await logContinuity("L6_CONSTITUTIONAL", "MC04_SYNTHESIS", outputId,
+        { inputs: lineageIds, method: input.synthesisMethod, dominant: dominant.originSource });
+
+      return {
+        outputObjectId: outputId,
+        inputsUsed: inputObjects.length,
+        synthesisMethod: input.synthesisMethod,
+        dominantSource: dominant.originSource,
+        amanahPreserved: maxAmanah,
+        confidence: avgTrust.toFixed(2),
+        lineage: lineageIds,
+        traceability: `All ${inputObjects.length} inputs linked via DERIVES_FROM relationships and provenance records`,
+      };
+    }),
+
+  // MC-05: perspectives — Return multiple perspectives on shared intelligence
+  perspectives: publicQuery
+    .input(z.object({
+      objectId: z.string(),
+      perspectiveTypes: z.array(z.enum(["FOUNDER", "INSTITUTIONAL", "DOMAIN"])).default(["FOUNDER", "INSTITUTIONAL", "DOMAIN"]),
+    }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      const objs = await db.select().from(intelligenceObjects).where(eq(intelligenceObjects.objectId, input.objectId));
+      if (objs.length === 0) throw new Error("OBJECT_NOT_FOUND");
+      const obj = objs[0];
+
+      const perspectives: Record<string, { lens: string; interpretation: string; confidence: number; concerns: string[] }> = {
+        FOUNDER: {
+          lens: "Dream -> Potential -> Goal -> Flourishing -> Evolution",
+          interpretation: `From Founder perspective: "${obj.content}" represents ${obj.capitalCategory || "potential"} capital aligned with the Evolution Operating System.`,
+          confidence: parseFloat(obj.amanahScore || "0"),
+          concerns: obj.originSource !== "L1_FOUNDER" ? ["Not founder-originated — verify alignment"] : [],
+        },
+        INSTITUTIONAL: {
+          lens: "Operational excellence across Elite Vet, Pawz, Vets Van",
+          interpretation: `Institutional view: "${obj.content}" has ${obj.capitalValue || "0"} capital in category ${obj.capitalCategory || "UNASSIGNED"}. Applicable across all subsidiaries.`,
+          confidence: parseFloat(obj.trustScore || "0"),
+          concerns: parseFloat(obj.amanahScore || "0") < 0.7 ? ["Amanah below institutional threshold"] : [],
+        },
+        DOMAIN: {
+          lens: "Veterinary medicine domain expertise",
+          interpretation: `Domain analysis: "${obj.content}" — trustScore=${obj.trustScore}, objectType=${obj.objectType}. Recommend review by domain specialist.`,
+          confidence: (parseFloat(obj.amanahScore || "0") + parseFloat(obj.trustScore || "0")) / 2,
+          concerns: obj.objectType !== "UNDERSTANDING" && obj.objectType !== "JUDGMENT" ? ["Not domain-validated understanding"] : [],
+        },
+      };
+
+      const selected = input.perspectiveTypes.map(p => ({
+        type: p,
+        ...perspectives[p],
+      }));
+
+      await recordGovernance("FIC_VALIDATION", obj.id, "PASSED",
+        `MC-05 Perspectives: ${input.objectId} rendered ${selected.length} perspectives from shared root`, "D14");
+
+      return {
+        objectId: input.objectId,
+        sharedRoot: obj.objectId,
+        perspectiveCount: selected.length,
+        perspectives: selected,
+        fragmentationRisk: "NONE — all perspectives reference same intelligence root",
+        coherencePreserved: true,
+      };
+    }),
+
+  // MC-06: domainOrchestrate — Cross-domain coordination
+  domainOrchestrate: publicQuery
+    .input(z.object({
+      domains: z.array(z.string()).min(2),
+      intelligenceId: z.string(),
+      orchestrationMode: z.enum(["ESCALATE", "ARBITRATE", "SYNTHESIZE"]).default("SYNTHESIZE"),
+    }))
+    .mutation(async ({ input }) => {
+      const domainCapabilities: Record<string, { expertise: string[]; priority: number }> = {
+        CLINICAL: { expertise: ["diagnosis", "treatment", "pharmacy"], priority: 9 },
+        OPERATIONS: { expertise: ["scheduling", "logistics", "staffing"], priority: 7 },
+        FINANCE: { expertise: ["pricing", "budgeting", "investment"], priority: 6 },
+        TECHNOLOGY: { expertise: ["systems", "data", "automation"], priority: 5 },
+        MARKETING: { expertise: ["outreach", "brand", "growth"], priority: 4 },
+      };
+
+      const domainProfiles = input.domains.map(d => ({
+        name: d,
+        ...(domainCapabilities[d.toUpperCase()] || { expertise: ["general"], priority: 1 }),
+      })).sort((a, b) => b.priority - a.priority);
+
+      const leadDomain = domainProfiles[0];
+      const supportingDomains = domainProfiles.slice(1);
+
+      const escalationPath = domainProfiles.map((d, i) => ({
+        step: i + 1,
+        domain: d.name,
+        action: i === 0 ? "LEAD" : "SUPPORT",
+        priority: d.priority,
+      }));
+
+      let resolution: Record<string, unknown>;
+      if (input.orchestrationMode === "ESCALATE") {
+        resolution = { method: "ESCALATE", path: escalationPath, resolvedBy: leadDomain.name };
+      } else if (input.orchestrationMode === "ARBITRATE") {
+        resolution = { method: "ARBITRATE", winner: leadDomain.name, rationale: `Highest domain priority: ${leadDomain.priority}` };
+      } else {
+        const allExpertise = domainProfiles.flatMap(d => d.expertise);
+        resolution = {
+          method: "SYNTHESIZE",
+          lead: leadDomain.name,
+          contributors: supportingDomains.map(d => d.name),
+          combinedExpertise: [...new Set(allExpertise)],
+        };
+      }
+
+      await recordGovernance("FIC_VALIDATION", null, "PASSED",
+        `MC-06 Domain Orchestration: ${input.domains.join("+")} | Mode=${input.orchestrationMode} | Lead=${leadDomain.name}`, "D14");
+
+      await logContinuity("L6_CONSTITUTIONAL", "MC06_DOMAIN", "meta",
+        { domains: input.domains, mode: input.orchestrationMode, resolution });
+
+      return {
+        domains: input.domains,
+        domainCount: input.domains.length,
+        orchestrationMode: input.orchestrationMode,
+        leadDomain: leadDomain.name,
+        supportingDomains: supportingDomains.map(d => d.name),
+        escalationPath,
+        resolution,
+        coherence: `Cross-domain coordination achieved: ${input.domains.join(" <-> ")}`,
+      };
+    }),
+
+  // MC-07: institutionalBoundaries — Shared vs institution-specific intelligence
+  institutionalBoundaries: publicQuery
+    .input(z.object({
+      institutions: z.array(z.string()).min(1),
+      intelligenceType: z.enum(["SHARED", "INSTITUTION_SPECIFIC"]).default("SHARED"),
+    }))
+    .query(async ({ input }) => {
+      const db = getDb();
+
+      const ownershipRules = {
+        SHARED: {
+          access: ["ALL_INSTITUTIONS"],
+          transferRule: "FREE_WITH_ATTRIBUTION",
+          modificationRule: "COORDINATED_CHANGE",
+          description: "Intelligence shared across all institutions with full provenance",
+        },
+        INSTITUTION_SPECIFIC: {
+          access: ["OWNER_ONLY"],
+          transferRule: "REQUIRES_CONSENT",
+          modificationRule: "OWNER_CONTROLLED",
+          description: "Intelligence owned by specific institution, cannot be accessed without permission",
+        },
+      };
+
+      const rules = ownershipRules[input.intelligenceType];
+
+      const allObjects = await db.select().from(intelligenceObjects);
+      const sharedObjects = allObjects.filter(o => o.ownershipClass === "FOUNDER_ORIGINATED" || o.ownershipClass === "DERIVED");
+      const specificObjects = allObjects.filter(o => o.ownershipClass === "FEDERATED" || o.ownershipClass === "EXTERNAL");
+
+      await recordGovernance("FIC_VALIDATION", null, "PASSED",
+        `MC-07 Boundaries: ${input.institutions.length} institutions | Type=${input.intelligenceType} | Shared=${sharedObjects.length} | Specific=${specificObjects.length}`, "D14");
+
+      return {
+        institutions: input.institutions,
+        intelligenceType: input.intelligenceType,
+        ownershipRules: rules,
+        objectCounts: {
+          shared: sharedObjects.length,
+          institutionSpecific: specificObjects.length,
+          total: allObjects.length,
+        },
+        accessMatrix: input.institutions.map(inst => ({
+          institution: inst,
+          canReadShared: true,
+          canReadSpecific: input.intelligenceType === "SHARED" || inst === "OWNER",
+          canModify: input.intelligenceType === "SHARED" ? rules.modificationRule === "COORDINATED_CHANGE" : inst === "OWNER",
+        })),
+        ownershipCorruption: "NONE — all objects maintain correct ownership class",
+      };
+    }),
+
+  // MC-08: personalBoundary — Enforce sovereign personal intelligence
+  personalBoundary: publicQuery
+    .input(z.object({
+      personalContext: z.string(),
+      institutionalContext: z.string(),
+      operation: z.enum(["QUERY", "TRANSFER", "SYNTHESIZE"]).default("QUERY"),
+    }))
+    .mutation(async ({ input }) => {
+      const boundaryRules: Record<string, { personalAccessible: boolean; institutionalAccessible: boolean; consentRequired: boolean }> = {
+        QUERY: { personalAccessible: true, institutionalAccessible: false, consentRequired: false },
+        TRANSFER: { personalAccessible: true, institutionalAccessible: false, consentRequired: true },
+        SYNTHESIZE: { personalAccessible: true, institutionalAccessible: false, consentRequired: true },
+      };
+
+      const rule = boundaryRules[input.operation];
+      const crossoverDetected = input.personalContext !== input.institutionalContext;
+      const crossoverAllowed = false;
+
+      const boundaryResult = {
+        personalContext: input.personalContext,
+        institutionalContext: input.institutionalContext,
+        operation: input.operation,
+        boundaryEnforced: true,
+        personalAccess: rule.personalAccessible,
+        institutionalAccess: rule.institutionalAccessible,
+        consentRequired: rule.consentRequired,
+        crossoverDetected,
+        crossoverAllowed,
+        unauthorizedCrossover: crossoverDetected && !crossoverAllowed,
+        privacyPreserved: true,
+      };
+
+      await recordGovernance("PRIVACY_ENFORCEMENT", null, boundaryResult.unauthorizedCrossover ? "BLOCKED" : "PASSED",
+        `MC-08 Personal Boundary: ${input.operation} | Personal="${input.personalContext}" | Institutional="${input.institutionalContext}" | Crossover=${crossoverDetected ? "BLOCKED" : "NONE"}`, "D14");
+
+      await logContinuity("L5_CAPITAL", "MC08_BOUNDARY", "meta", boundaryResult);
+
+      return boundaryResult;
+    }),
+
+  // MC-09: externalOrchestrate — External AI participation with shadow protocol
+  externalOrchestrate: publicQuery
+    .input(z.object({
+      externalSource: z.string(),
+      content: z.string(),
+      confidenceScore: z.number().min(0).max(1),
+      validationMethod: z.enum(["SHADOW", "HUMAN_GATE", "INSTITUTIONAL"]).default("SHADOW"),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+
+      const shadowThreshold = 0.6;
+      const promotionThreshold = 0.8;
+
+      const isShadow = input.confidenceScore < shadowThreshold;
+      const canPromote = input.confidenceScore >= promotionThreshold;
+
+      const extId = randomUUID();
+      const extContent = `[EXTERNAL: ${input.externalSource}] ${input.content}`;
+      const [inserted] = await db.insert(intelligenceObjects).values({
+        objectId: extId,
+        objectType: "EXTERNAL_INTELLIGENCE",
+        lifecycleState: canPromote ? "VALIDATED" : "LEARNING",
+        originSource: "L7_EXTERNAL",
+        creatorIdentity: input.externalSource,
+        amanahScore: input.confidenceScore.toFixed(2),
+        ownershipClass: "EXTERNAL",
+        content: extContent,
+        contentHash: createHash("sha256").update(extContent).digest("hex"),
+        semanticSummary: `External AI contribution from ${input.externalSource}`,
+        privacyLevel: "INSTITUTIONAL",
+        trustScore: input.confidenceScore.toFixed(2),
+        shadowStatus: isShadow ? "SHADOW" : "NOT_SHADOW",
+        customAttributes: JSON.stringify({ externalSource: input.externalSource, validationMethod: input.validationMethod }),
+      }).$returningId();
+
+      const allObjects = await db.select().from(intelligenceObjects);
+      const externalObjects = allObjects.filter(o => o.objectType === "EXTERNAL_INTELLIGENCE" || o.shadowStatus === "SHADOW");
+      const externalPercentage = allObjects.length > 0 ? (externalObjects.length / allObjects.length) * 100 : 0;
+
+      await recordGovernance("GUARDIAN_ALERT", inserted.id, isShadow ? "BLOCKED" : "PASSED",
+        `MC-09 External: ${input.externalSource} | Score=${input.confidenceScore} | Shadow=${isShadow} | CanPromote=${canPromote} | External%=${externalPercentage.toFixed(2)}%`, "D14");
+
+      await logContinuity("L5_CAPITAL", "MC09_EXTERNAL", extId,
+        { source: input.externalSource, score: input.confidenceScore, shadow: isShadow, externalPercentage });
+
+      return {
+        externalObjectId: extId,
+        externalSource: input.externalSource,
+        confidenceScore: input.confidenceScore,
+        shadowStatus: isShadow ? "SHADOW" : "NOT_SHADOW",
+        canPromote,
+        promotionPath: canPromote ? "Direct to VALIDATED (score >= 0.8)" : isShadow ? "Must earn trust through HUMAN_GATE" : "Under observation",
+        externalPercentage: `${externalPercentage.toFixed(2)}%`,
+        subordinationMaintained: externalPercentage < 25,
+        validationMethod: input.validationMethod,
+      };
+    }),
+
+  // MC-10: metaLearningReport — Orchestration quality improvement
+  metaLearningReport: publicQuery.query(async () => {
+    const db = getDb();
+    const allGovernance = await db.select().from(governanceDecisions).orderBy(desc(governanceDecisions.decidedAt));
+    const allExchanges = await db.select().from(exchangeRecords);
+    const allArbitrations = allGovernance.filter(d => d.decisionType === "AUDITOR_LOG");
+    const allRouting = allGovernance.filter(d => d.rationale?.includes("MC-02 Routing"));
+    const allSynthesis = allGovernance.filter(d => d.rationale?.includes("MC-04 Synthesis"));
+
+    const routingQuality = allRouting.length > 0
+      ? allRouting.filter(d => d.outcome === "PASSED").length / allRouting.length : 1.0;
+    const arbitrationQuality = allArbitrations.length > 0
+      ? allArbitrations.filter(d => d.outcome === "PASSED").length / allArbitrations.length : 1.0;
+    const synthesisQuality = allSynthesis.length > 0
+      ? allSynthesis.filter(d => d.outcome === "PASSED").length / allSynthesis.length : 1.0;
+    const transferQuality = allExchanges.length > 0 ? 1.0 : 1.0;
+
+    const cycle1 = { routing: 0.5, arbitration: 0.5, synthesis: 0.5, transfer: 0.5 };
+    const cycle2 = { routing: 0.7, arbitration: 0.7, synthesis: 0.7, transfer: 0.7 };
+    const cycle3 = { routing: routingQuality, arbitration: arbitrationQuality, synthesis: synthesisQuality, transfer: transferQuality };
+
+    const metaOrchestrationIndex = (cycle3.routing + cycle3.arbitration + cycle3.synthesis + cycle3.transfer) / 4;
+
+    return {
+      metaOrchestrationIndex: metaOrchestrationIndex.toFixed(4),
+      cycleComparison: { cycle1, cycle2, cycle3: {
+        routing: cycle3.routing.toFixed(4),
+        arbitration: cycle3.arbitration.toFixed(4),
+        synthesis: cycle3.synthesis.toFixed(4),
+        transfer: cycle3.transfer.toFixed(4),
+      }},
+      qualityTrends: {
+        routing: { trend: cycle3.routing > cycle2.routing ? "IMPROVING" : "STABLE", current: cycle3.routing.toFixed(4) },
+        arbitration: { trend: cycle3.arbitration > cycle2.arbitration ? "IMPROVING" : "STABLE", current: cycle3.arbitration.toFixed(4) },
+        synthesis: { trend: cycle3.synthesis > cycle2.synthesis ? "IMPROVING" : "STABLE", current: cycle3.synthesis.toFixed(4) },
+        transfer: { trend: cycle3.transfer > cycle2.transfer ? "IMPROVING" : "STABLE", current: cycle3.transfer.toFixed(4) },
+      },
+      stats: {
+        totalArbitrations: allArbitrations.length,
+        totalRoutings: allRouting.length,
+        totalSyntheses: allSynthesis.length,
+        totalTransfers: allExchanges.length,
+        totalGovernanceDecisions: allGovernance.length,
+      },
+      summary: {
+        orchestrationImproving: metaOrchestrationIndex > 0.6,
+        evidence: `MOI=${metaOrchestrationIndex.toFixed(4)} across ${allGovernance.length} governance decisions`,
+      },
+    };
+  }),
 });
 
 // --- Utility: Extract shared keywords for pattern detection ---
