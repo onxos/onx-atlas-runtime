@@ -2960,6 +2960,121 @@ export const intelligenceRouter = createRouter({
         accumulative: true,
       };
     }),
+
+  // ==========================================================
+  // CONSTITUTIONAL EXTENSION: ISMF (Extension 04)
+  // Intelligence Sovereignty Measurement Framework
+  // Computes KSR, PDR, KRR, SCG, KOR, SAI from live system data
+  // ==========================================================
+
+  sovereigntyReport: publicQuery.query(async () => {
+    const db = getDb();
+
+    // Total intelligence objects
+    const allObjects = await db.select().from(intelligenceObjects);
+    const totalObjects = allObjects.length;
+
+    // Internal vs external objects
+    const internalObjects = allObjects.filter(
+      (o) => o.originSource === "L1_FOUNDER" || o.originSource === "L2_SIL" || o.originSource === "L5_REALITY" || o.originSource === "L6_PROCESS"
+    );
+    const externalObjects = allObjects.filter(
+      (o) => o.originSource === "L7_EXTERNAL" || o.objectType === "EXTERNAL_INTELLIGENCE"
+    );
+    const ownedObjects = allObjects.filter(
+      (o) => o.ownershipClass === "FOUNDER_ORIGINATED" || o.ownershipClass === "DERIVED" || o.ownershipClass === "SHARED"
+    );
+
+    // KSR — Knowledge Sovereignty Ratio
+    const totalUsage = totalObjects;
+    const internalUsage = internalObjects.length;
+    const ksr = totalUsage > 0 ? internalUsage / totalUsage : 0;
+
+    // PDR — Provider Dependency Ratio
+    const externalUsage = externalObjects.length;
+    const pdr = totalUsage > 0 ? externalUsage / totalUsage : 0;
+
+    // KRR — Knowledge Reuse Rate
+    // Reused knowledge = objects that have been referenced in learning transitions
+    const transitions = await db.select().from(learningTransitions);
+    const reusedObjects = new Set(transitions.map((t) => t.objectId));
+    const krr = totalObjects > 0 ? reusedObjects.size / totalObjects : 0;
+
+    // KOR — Knowledge Ownership Ratio
+    const kor = totalObjects > 0 ? ownedObjects.length / totalObjects : 0;
+
+    // SCG — Source Capital Growth
+    const capitalRecords_db = await db.select().from(capitalRecords);
+    const providerCapital = capitalRecords_db.filter(
+      (c) => c.reason && (c.reason.includes("Provider") || c.reason.includes("provider"))
+    );
+    const totalInstitutionalCapital = capitalRecords_db.reduce(
+      (s, c) => s + parseFloat(c.amount || "0"), 0
+    );
+
+    // SAI — Sovereignty Acceleration Index (Emerging)
+    // SAI = (KSR growth rate) / (PDR baseline)
+    // Simplified: positive when KSR > PDR
+    const sai = pdr > 0 ? (ksr - pdr) / pdr : ksr;
+
+    return {
+      // Mandatory metrics
+      ksr: {
+        value: ksr.toFixed(4),
+        percentage: (ksr * 100).toFixed(2) + "%",
+        label: "Knowledge Sovereignty Ratio",
+        formula: "Internal Intelligence Usage / Total Intelligence Usage",
+        target: "> 0.70",
+        status: ksr >= 0.70 ? "ON_TARGET" : ksr >= 0.50 ? "APPROACHING" : "BELOW_TARGET",
+      },
+      pdr: {
+        value: pdr.toFixed(4),
+        percentage: (pdr * 100).toFixed(2) + "%",
+        label: "Provider Dependency Ratio",
+        formula: "External Provider Usage / Total Intelligence Usage",
+        target: "< 0.30",
+        status: pdr <= 0.30 ? "ON_TARGET" : pdr <= 0.50 ? "ELEVATED" : "HIGH",
+      },
+      krr: {
+        value: krr.toFixed(4),
+        percentage: (krr * 100).toFixed(2) + "%",
+        label: "Knowledge Reuse Rate",
+        formula: "Reused Knowledge / Total Knowledge",
+        target: "> 0.50",
+        status: krr >= 0.50 ? "ON_TARGET" : krr >= 0.30 ? "APPROACHING" : "BELOW_TARGET",
+      },
+      kor: {
+        value: kor.toFixed(4),
+        percentage: (kor * 100).toFixed(2) + "%",
+        label: "Knowledge Ownership Ratio",
+        formula: "Owned Knowledge / Total Knowledge Used",
+        target: "> 0.60",
+        status: kor >= 0.60 ? "ON_TARGET" : kor >= 0.40 ? "APPROACHING" : "BELOW_TARGET",
+      },
+      scg: {
+        providerCapitalRecords: providerCapital.length,
+        institutionalCapital: totalInstitutionalCapital.toFixed(4),
+        label: "Source Capital Growth",
+        formula: "Provider/Source Capital Evolution Over Time",
+        status: totalInstitutionalCapital > 0 ? "GROWING" : "INITIALIZING",
+      },
+      // Emerging metric
+      sai: {
+        value: sai.toFixed(4),
+        label: "Sovereignty Acceleration Index (Emerging)",
+        formula: "(KSR - PDR) / PDR baseline",
+        status: sai > 0 ? "ACCELERATING" : sai === 0 ? "STABLE" : "DECLINING",
+        note: "Emerging metric — not yet constitutional primary KPI",
+      },
+      // Summary
+      sovereigntyScore: ((ksr + krr + kor) / 3 * 100).toFixed(2),
+      totalObjects,
+      internalObjects: internalUsage,
+      externalObjects: externalUsage,
+      ownedObjects: ownedObjects.length,
+      evidence: `KSR=${(ksr * 100).toFixed(1)}% PDR=${(pdr * 100).toFixed(1)}% KRR=${(krr * 100).toFixed(1)}% KOR=${(kor * 100).toFixed(1)}%`,
+    };
+  }),
 });
 
 // --- Utility: Extract shared keywords for pattern detection ---

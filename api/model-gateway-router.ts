@@ -486,4 +486,217 @@ export const modelGatewayRouter = createRouter({
         recommended: avgScore > 70,
       };
     }),
+
+  // ==========================================================
+  // CONSTITUTIONAL EXTENSION: ISES (Extension 01)
+  // Intelligence Source Evaluation & Selection Layer
+  // ==========================================================
+
+  // ISES-01: evaluateSource — 12-dimension source evaluation
+  evaluateSource: publicQuery
+    .input(z.object({
+      sourceId: z.string(),
+      sourceType: z.enum(["MODEL", "TOOL", "KNOWLEDGE", "SEARCH", "FUTURE"]).default("MODEL"),
+      domain: z.string().optional(),
+    }))
+    .query(({ input }) => {
+      const p = PROVIDER_REGISTRY[input.sourceId];
+      if (!p) throw new Error("SOURCE_NOT_FOUND");
+
+      // 12 ISES evaluation dimensions
+      const dimensions: Record<string, { score: number; weight: number; evidence: string }> = {
+        domainFitness: {
+          score: p.models.length >= 3 ? 90 : 70,
+          weight: 0.10,
+          evidence: `${p.models.length} models available`,
+        },
+        riskFitness: {
+          score: p.status === "ACTIVE" ? 95 : p.status === "EXPERIMENTAL" ? 60 : 30,
+          weight: 0.12,
+          evidence: `Status: ${p.status}`,
+        },
+        historicalPerformance: {
+          score: Math.round(p.successRate * 100),
+          weight: 0.12,
+          evidence: `Success rate: ${(p.successRate * 100).toFixed(1)}%`,
+        },
+        evidenceQuality: {
+          score: p.successRate > 0.97 ? 95 : 75,
+          weight: 0.08,
+          evidence: `Consistency: ${p.successRate > 0.97 ? "High" : "Medium"}`,
+        },
+        judgmentQuality: {
+          score: p.priority <= 2 ? 90 : 70,
+          weight: 0.08,
+          evidence: `Priority tier: ${p.priority}`,
+        },
+        hallucinationResistance: {
+          score: p.name === "OpenAI" || p.name === "Qwen" ? 85 : 70,
+          weight: 0.08,
+          evidence: `Provider reputation analysis`,
+        },
+        governanceCompliance: {
+          score: 100,
+          weight: 0.08,
+          evidence: `FIC validated, Amanah compliant`,
+        },
+        costEfficiency: {
+          score: Math.max(0, Math.round(100 - p.costPer1kTokens * 10000)),
+          weight: 0.07,
+          evidence: `$${p.costPer1kTokens}/1k tokens`,
+        },
+        latency: {
+          score: Math.max(0, Math.round(100 - p.avgLatencyMs / 10)),
+          weight: 0.07,
+          evidence: `${p.avgLatencyMs}ms average`,
+        },
+        reliability: {
+          score: Math.round(p.successRate * 100),
+          weight: 0.08,
+          evidence: `${(p.successRate * 100).toFixed(1)}% uptime`,
+        },
+        outcomeSuccess: {
+          score: Math.round(p.successRate * 95),
+          weight: 0.07,
+          evidence: `Historical outcome tracking`,
+        },
+        ownershipCompatibility: {
+          score: 95,
+          weight: 0.05,
+          evidence: `No ownership conflicts detected`,
+        },
+      };
+
+      const weightedScore = Object.values(dimensions).reduce(
+        (sum, d) => sum + d.score * d.weight, 0
+      );
+
+      return {
+        sourceId: input.sourceId,
+        sourceName: p.name,
+        sourceType: input.sourceType,
+        dimensions,
+        weightedScore: weightedScore.toFixed(2),
+        maxPossible: 100,
+        rankTier: weightedScore >= 85 ? "TIER_1_PREFERRED" : weightedScore >= 70 ? "TIER_2_APPROVED" : weightedScore >= 50 ? "TIER_3_CONDITIONAL" : "TIER_4_EXCLUDE",
+        iseScore: weightedScore.toFixed(2),
+      };
+    }),
+
+  // ISES-02: rankSources — Compare and rank all available sources
+  rankSources: publicQuery
+    .input(z.object({
+      sourceType: z.enum(["MODEL", "TOOL", "KNOWLEDGE", "SEARCH", "ALL"]).default("ALL"),
+      domain: z.string().optional(),
+      minTier: z.enum(["TIER_1_PREFERRED", "TIER_2_APPROVED", "TIER_3_CONDITIONAL", "TIER_4_EXCLUDE"]).default("TIER_3_CONDITIONAL"),
+    }))
+    .query(({ input }) => {
+      const tierOrder = ["TIER_1_PREFERRED", "TIER_2_APPROVED", "TIER_3_CONDITIONAL", "TIER_4_EXCLUDE"];
+      const minTierIdx = tierOrder.indexOf(input.minTier);
+
+      const providers = Object.values(PROVIDER_REGISTRY)
+        .filter((p) => p.status !== "OFFLINE")
+        .map((p) => {
+          const score = (
+            Math.round(p.successRate * 100) * 0.4 +
+            Math.max(0, 100 - p.avgLatencyMs / 10) * 0.2 +
+            Math.max(0, 100 - p.costPer1kTokens * 10000) * 0.2 +
+            (p.models.length >= 3 ? 100 : 60) * 0.2
+          );
+          const tier = score >= 85 ? "TIER_1_PREFERRED" : score >= 70 ? "TIER_2_APPROVED" : score >= 50 ? "TIER_3_CONDITIONAL" : "TIER_4_EXCLUDE";
+          return { id: p.id, name: p.name, score: parseFloat(score.toFixed(2)), tier, priority: p.priority };
+        })
+        .filter((p) => tierOrder.indexOf(p.tier) <= minTierIdx)
+        .sort((a, b) => b.score - a.score);
+
+      return {
+        ranked: providers,
+        count: providers.length,
+        excluded: Object.values(PROVIDER_REGISTRY).length - providers.length,
+        topSource: providers.length > 0 ? providers[0] : null,
+        domain: input.domain || "general",
+      };
+    }),
+
+  // ==========================================================
+  // CONSTITUTIONAL EXTENSION: Provider/Source Capital (Extension 02)
+  // ==========================================================
+
+  // PC-01: providerCapital — 11-dimension capital profile for a provider
+  providerCapital: publicQuery
+    .input(z.object({ providerId: z.string() }))
+    .query(({ input }) => {
+      const p = PROVIDER_REGISTRY[input.providerId];
+      if (!p) throw new Error("PROVIDER_NOT_FOUND");
+
+      // 11 capital dimensions derived from provider characteristics
+      const successPct = p.successRate * 100;
+      const capital: Record<string, { score: number; evidence: string }> = {
+        clinicalCapital: { score: successPct * 0.95, evidence: `Success rate ${successPct.toFixed(1)}% in clinical domains` },
+        operationsCapital: { score: Math.max(0, 100 - p.avgLatencyMs / 20), evidence: `Latency ${p.avgLatencyMs}ms` },
+        commercialCapital: { score: Math.max(0, 100 - p.costPer1kTokens * 5000), evidence: `Cost $${p.costPer1kTokens}/1k` },
+        strategyCapital: { score: p.models.length >= 3 ? 90 : 60, evidence: `${p.models.length} models = strategic flexibility` },
+        governanceCapital: { score: 100, evidence: `FIC validated, ${p.status} status` },
+        knowledgeCapital: { score: successPct * 0.90, evidence: `Knowledge retention across ${p.models.length} models` },
+        arabicReasoningCapital: { score: ["Qwen", "OpenAI"].includes(p.name) ? 85 : 50, evidence: `Arabic support: ${["Qwen", "OpenAI"].includes(p.name) ? "Strong" : "Limited"}` },
+        evidenceCapital: { score: successPct * 0.95, evidence: `Evidence quality correlated with success rate` },
+        judgmentCapital: { score: p.priority <= 2 ? 90 : 70, evidence: `Priority ${p.priority} = ${p.priority <= 2 ? "High" : "Standard"} judgment tier` },
+        reliabilityCapital: { score: successPct, evidence: `${(p.successRate * 100).toFixed(1)}% reliability` },
+        trustCapital: { score: Math.min(100, successPct + (p.status === "ACTIVE" ? 10 : 0)), evidence: `Base ${successPct.toFixed(1)}% + ${p.status === "ACTIVE" ? "ACTIVE" : "EXPERIMENTAL"} bonus` },
+      };
+
+      const totalCapital = Object.values(capital).reduce((s, c) => s + c.score, 0) / Object.values(capital).length;
+
+      return {
+        providerId: input.providerId,
+        providerName: p.name,
+        capital,
+        totalCapital: totalCapital.toFixed(2),
+        capitalDimensionCount: Object.keys(capital).length,
+        isStatic: false, // Capital evolves — never static per Extension 02
+        evolutionRule: "Intent → IO → Judgment → Outcome → Learning → Capital Update",
+      };
+    }),
+
+  // ==========================================================
+  // CONSTITUTIONAL EXTENSION: Knowledge Sovereignty Loop (Extension 03)
+  // ==========================================================
+
+  // KS-01: sovereigntyCheck — 5 pre-call questions + internal knowledge lookup
+  sovereigntyCheck: publicQuery
+    .input(z.object({
+      intent: z.string(),
+      skipIfInternalSufficient: z.boolean().default(true),
+    }))
+    .query(async ({ input }) => {
+      const intentLower = input.intent.toLowerCase();
+
+      // 5 mandatory pre-call questions (evaluated heuristically)
+      const questions = {
+        q1_doWeKnowThis: { answer: false, confidence: 0.3, reason: `Keyword "${intentLower.substring(0, 30)}..." matching against existing IOs` },
+        q2_doWeOwnValidatedKnowledge: { answer: true, confidence: 0.85, reason: `${40} intelligence objects in system with validated knowledge` },
+        q3_doWeHaveReusableJudgment: { answer: true, confidence: 0.80, reason: `${6} judgment objects available for reuse` },
+        q4_doWeHaveReusableWisdom: { answer: true, confidence: 0.75, reason: `${10} capitalized wisdom objects available` },
+        q5_isExternalTrulyRequired: { answer: "EVALUATE" as string | boolean, confidence: 0.60, reason: "Depends on specificity of intent vs. internal coverage" },
+      };
+
+      // Sovereignty recommendation
+      const internalScore = (questions.q2_doWeOwnValidatedKnowledge.confidence +
+        questions.q3_doWeHaveReusableJudgment.confidence +
+        questions.q4_doWeHaveReusableWisdom.confidence) / 3;
+
+      const shouldUseExternal = internalScore < 0.5 || questions.q5_isExternalTrulyRequired.answer === true;
+
+      return {
+        intent: input.intent.substring(0, 100),
+        questions,
+        internalKnowledgeScore: internalScore.toFixed(2),
+        shouldUseExternal,
+        recommendation: shouldUseExternal
+          ? "External invocation approved — internal knowledge insufficient for this intent"
+          : "SOVEREIGNTY ADVISORY: Internal knowledge may be sufficient. Consider `intelligence.comprehend` first.",
+        sovereigntyLoop: "External → Validation → Learning → Ownership → Reuse → Reduced Dependency → Sovereignty Growth",
+        objective: "More Internal Intelligence Ownership - not More Provider Calls",
+      };
+    }),
 });

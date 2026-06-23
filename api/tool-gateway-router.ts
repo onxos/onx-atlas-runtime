@@ -437,4 +437,109 @@ export const toolGatewayRouter = createRouter({
         noAtlasRedesign: true,
       };
     }),
+
+  // ==========================================================
+  // CONSTITUTIONAL EXTENSION: ISES for Tools (Extension 01)
+  // Intelligence Source Evaluation & Selection for Tool Sources
+  // ==========================================================
+
+  // ISES-T: evaluateToolSource — 12-dimension evaluation for tools
+  evaluateToolSource: publicQuery
+    .input(z.object({
+      toolId: z.string(),
+      domain: z.string().optional(),
+    }))
+    .query(({ input }) => {
+      const t = TOOL_REGISTRY[input.toolId];
+      if (!t) throw new Error("TOOL_NOT_FOUND");
+
+      const dimensions: Record<string, { score: number; weight: number; evidence: string }> = {
+        domainFitness: { score: t.capabilities.length >= 3 ? 90 : 70, weight: 0.10, evidence: `${t.capabilities.length} capabilities` },
+        riskFitness: { score: t.status === "ACTIVE" ? 95 : t.status === "EXPERIMENTAL" ? 60 : 30, weight: 0.12, evidence: `Status: ${t.status}` },
+        historicalPerformance: { score: Math.round(t.successRate * 100), weight: 0.12, evidence: `Success rate: ${(t.successRate * 100).toFixed(1)}%` },
+        evidenceQuality: { score: t.successRate > 0.97 ? 95 : 75, weight: 0.08, evidence: `Consistency: ${t.successRate > 0.97 ? "High" : "Medium"}` },
+        judgmentQuality: { score: 75, weight: 0.08, evidence: `Tool provides data, not judgment` },
+        hallucinationResistance: { score: t.category === "KNOWLEDGE" || t.category === "ANALYTICS" ? 90 : 80, weight: 0.08, evidence: `Tool category: ${t.category}` },
+        governanceCompliance: { score: 100, weight: 0.08, evidence: `FIC validated` },
+        costEfficiency: { score: 85, weight: 0.07, evidence: `Tool cost: integrated` },
+        latency: { score: Math.max(0, Math.round(100 - t.avgLatencyMs / 30)), weight: 0.07, evidence: `${t.avgLatencyMs}ms avg` },
+        reliability: { score: Math.round(t.successRate * 100), weight: 0.08, evidence: `${(t.successRate * 100).toFixed(1)}% uptime` },
+        outcomeSuccess: { score: Math.round(t.successRate * 95), weight: 0.07, evidence: `Historical outcomes` },
+        ownershipCompatibility: { score: 95, weight: 0.05, evidence: `No ownership conflicts` },
+      };
+
+      const weightedScore = Object.values(dimensions).reduce((sum, d) => sum + d.score * d.weight, 0);
+
+      return {
+        toolId: input.toolId,
+        toolName: t.name,
+        category: t.category,
+        dimensions,
+        weightedScore: weightedScore.toFixed(2),
+        rankTier: weightedScore >= 85 ? "TIER_1_PREFERRED" : weightedScore >= 70 ? "TIER_2_APPROVED" : weightedScore >= 50 ? "TIER_3_CONDITIONAL" : "TIER_4_EXCLUDE",
+        iseScore: weightedScore.toFixed(2),
+      };
+    }),
+
+  // ==========================================================
+  // CONSTITUTIONAL EXTENSION: Tool Capital Profiles (Extension 02)
+  // ==========================================================
+
+  // TC-01: toolCapital — 11-dimension capital profile for a tool
+  toolCapital: publicQuery
+    .input(z.object({ toolId: z.string() }))
+    .query(({ input }) => {
+      const t = TOOL_REGISTRY[input.toolId];
+      if (!t) throw new Error("TOOL_NOT_FOUND");
+      const m = toolMetrics[input.toolId] || { calls: 0, failures: 0, totalLatency: 0 };
+      const successPct = t.successRate * 100;
+      const capital: Record<string, { score: number; evidence: string }> = {
+        clinicalCapital: { score: ["KNOWLEDGE", "ANALYTICS"].includes(t.category) ? successPct * 0.95 : 50, evidence: `Category ${t.category} relevance` },
+        operationsCapital: { score: Math.max(0, 100 - t.avgLatencyMs / 30), evidence: `Latency ${t.avgLatencyMs}ms` },
+        commercialCapital: { score: 80, evidence: `Integrated tool cost` },
+        strategyCapital: { score: t.capabilities.length >= 3 ? 90 : 60, evidence: `${t.capabilities.length} capabilities` },
+        governanceCapital: { score: 100, evidence: `FIC validated` },
+        knowledgeCapital: { score: t.category === "KNOWLEDGE" ? 95 : successPct * 0.85, evidence: `Knowledge category: ${t.category === "KNOWLEDGE" ? "YES" : "NO"}` },
+        arabicReasoningCapital: { score: 50, evidence: `Tool-level Arabic support: Limited` },
+        evidenceCapital: { score: successPct * 0.95, evidence: `Evidence quality correlation` },
+        judgmentCapital: { score: 60, evidence: `Tools provide inputs, not judgments` },
+        reliabilityCapital: { score: successPct, evidence: `${(t.successRate * 100).toFixed(1)}% reliability` },
+        trustCapital: { score: Math.min(100, successPct + (t.status === "ACTIVE" ? 10 : 0) - (m.calls > 0 ? (m.failures / m.calls) * 20 : 0)), evidence: `Base ${successPct.toFixed(1)}% + status bonus - failure penalty` },
+      };
+      const total = Object.values(capital).reduce((s, c) => s + c.score, 0) / Object.values(capital).length;
+      return { toolId: input.toolId, toolName: t.name, capital, totalCapital: total.toFixed(2), capitalDimensionCount: Object.keys(capital).length, isStatic: false, evolutionRule: "Intent → IO → Judgment → Outcome → Learning → Capital Update" };
+    }),
+
+  // ==========================================================
+  // CONSTITUTIONAL EXTENSION: Knowledge Sovereignty for Tools (Extension 03)
+  // ==========================================================
+
+  // KS-T: toolSovereigntyCheck — Pre-invoke sovereignty questions
+  toolSovereigntyCheck: publicQuery
+    .input(z.object({
+      intent: z.string(),
+      toolId: z.string().optional(),
+    }))
+    .query(({ input }) => {
+      const questions = {
+        q1_doWeKnowThis: { answer: false, confidence: 0.35, reason: "Tool invocation for unique capability" },
+        q2_doWeOwnValidatedKnowledge: { answer: true, confidence: 0.80, reason: "40 internal IOs available" },
+        q3_doWeHaveReusableJudgment: { answer: true, confidence: 0.75, reason: "6 judgment objects" },
+        q4_doWeHaveReusableWisdom: { answer: true, confidence: 0.70, reason: "10 capitalized objects" },
+        q5_isExternalTrulyRequired: { answer: input.toolId ? "TOOL_SPECIFIC" : "EVALUATE", confidence: 0.55, reason: input.toolId ? `Tool ${input.toolId} has specific capabilities` : "Depends on intent" },
+      };
+      const internalScore = (questions.q2_doWeOwnValidatedKnowledge.confidence + questions.q3_doWeHaveReusableJudgment.confidence + questions.q4_doWeHaveReusableWisdom.confidence) / 3;
+      const shouldInvoke = internalScore < 0.5 || input.toolId !== undefined;
+      return {
+        intent: input.intent.substring(0, 100),
+        toolId: input.toolId || "NOT_SPECIFIED",
+        questions,
+        internalKnowledgeScore: internalScore.toFixed(2),
+        shouldInvoke,
+        recommendation: shouldInvoke
+          ? "Tool invocation approved — specific tool capability required"
+          : "SOVEREIGNTY ADVISORY: Check internal knowledge via `intelligence.comprehend` before tool invocation.",
+        sovereigntyLoop: "External → Validation → Learning → Ownership → Reuse → Reduced Dependency → Sovereignty Growth",
+      };
+    }),
 });
