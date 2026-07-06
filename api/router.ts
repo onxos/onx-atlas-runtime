@@ -12,6 +12,12 @@ import { titanKbRouter } from "./titan-kb-router";
 import { vetIntelligenceRouter } from "./vet-intelligence-router";
 import { institutionalRouter } from "./institutional-router";
 import { skillsRouter } from "./skills-router";
+import { cepRouter } from "./cep-router";
+import { ocppRouter } from "./ocpp-router";
+import { cevpRouter } from "./cevp-router";
+import { ccopRouter } from "./ccop-router";
+import { cosRouter } from "./cos-router";
+import { ucrRouter } from "./ucr-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -30,6 +36,12 @@ export const appRouter = createRouter({
   vet: vetIntelligenceRouter,
   institutional: institutionalRouter,
   skills: skillsRouter,
+  cep: cepRouter,
+  ocpp: ocppRouter,
+  cevp: cevpRouter,
+  ccop: ccopRouter,
+  cos: cosRouter,
+  ucr: ucrRouter,
 });
 
 export type AppRouter = typeof appRouter;
