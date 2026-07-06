@@ -3,6 +3,7 @@ import { intelligenceRouter } from "./intelligence-router";
 import { modelGatewayRouter } from "./model-gateway-router";
 import { toolGatewayRouter } from "./tool-gateway-router";
 import { runtimeRouter } from "./runtime-router";
+import { titanBridgeRouter } from "./titan-bridge-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -12,6 +13,7 @@ export const appRouter = createRouter({
   modelGateway: modelGatewayRouter,
   toolGateway: toolGatewayRouter,
   runtime: runtimeRouter,
+  titan: titanBridgeRouter,
 });
 
 export type AppRouter = typeof appRouter;
