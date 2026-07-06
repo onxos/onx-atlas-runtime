@@ -20,6 +20,7 @@ import { cosRouter } from "./cos-router";
 import { ucrRouter } from "./ucr-router";
 import { schedulerRouter } from "./scheduler-router";
 import { passwordResetRouter } from "./password-reset-router";
+import { modelFederationRouter } from "./model-federation-router";
 import { createRouter, publicQuery } from "./middleware";
 
 export const appRouter = createRouter({
@@ -46,6 +47,7 @@ export const appRouter = createRouter({
   ucr: ucrRouter,
   scheduler: schedulerRouter,
   passwordReset: passwordResetRouter,
+  modelFederation: modelFederationRouter,
 });
 
 export type AppRouter = typeof appRouter;
